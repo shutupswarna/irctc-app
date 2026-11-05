@@ -1694,7 +1694,17 @@ function parseDate(text){const t=text.toLowerCase();const d=today();
  for(const [re,wd] of WDAYS){if(re.test(t)){const x=today();let add=(wd-x.getDay()+7)%7;if(add===0)add=7;if(/(next|agle|अगले)/i.test(t))add+= add<7?7:0;x.setDate(x.getDate()+add);return iso(x)}}
  if(/(next week|agle hafte|अगले हफ्ते|अगले हफ़्ते|next month|agle mahine|अगले महीने|diwali|दिवाली|chhath|छठ)/i.test(t))return 'vague';
  return null}
-function parseClass(t){if(/(sleeper|स्लीपर|\bsl\b)/i.test(t))return 'SL';if(/(first ac|1a\b|1ac|फर्स्ट एसी)/i.test(t))return '1A';if(/(2a\b|2ac|second ac|सेकंड एसी|2 tier|टू टियर)/i.test(t))return '2A';if(/(chair car|\bcc\b|चेयर कार)/i.test(t))return 'CC';if(/(3a\b|3ac|third ac|थर्ड एसी|3 tier|थ्री टियर|\bac\b|एसी)/i.test(t))return '3A';return null}
+function parseClass(t){const s=' '+String(t).toLowerCase()+' ';
+ const N='(1st|2nd|3rd|first|second|third|one|two|three|1|2|3|फर्स्ट|फ़र्स्ट|सेकंड|सेकेंड|थर्ड|पहली|दूसरी|तीसरी|प्रथम|द्वितीय|तृतीय|वन|टू|थ्री)';const AC='(ac|a\\.c\\.?|एसी|ए\\.सी\\.?|ए सी)';
+ const num=w=>/^(1st|first|one|1|फर्स्ट|फ़र्स्ट|पहली|प्रथम|वन)$/.test(w)?'1A':/^(2nd|second|two|2|सेकंड|सेकेंड|दूसरी|द्वितीय|टू)$/.test(w)?'2A':'3A';
+ if(/(chair ?car|चेयर ?कार|(^|[^a-z])cc([^a-z]|$)|sitting ac|एसी चेयर)/i.test(s))return 'CC';
+ let m=s.match(new RegExp(AC+'\\s*-?\\s*'+N+'(?=\\s|$|[^a-z0-9\\u0900-\\u097F])','i'));if(m)return num(m[2]);
+ m=s.match(new RegExp(N+'\\s*-?\\s*(?:tier|class|टियर|क्लास|श्रेणी)?\\s*'+AC,'i'));if(m)return num(m[1]);
+ m=s.match(new RegExp(N+'\\s*-?\\s*(tier|टियर)','i'));if(m)return num(m[1]);
+ m=s.match(/(^|[^a-z0-9])([123])\s*a(c)?(?=[^a-z]|$)/i);if(m)return m[2]+'A';
+ if(/(first class|फर्स्ट क्लास|फ़र्स्ट क्लास|प्रथम श्रेणी)/i.test(s))return '1A';
+ if(/(sleeper|स्लीपर|(^|[^a-z])sl([^a-z]|$)|non[ -]?ac|नॉन ?एसी)/i.test(s))return 'SL';
+ if(new RegExp('(^|[^a-z])'+AC+'([^a-z]|$)','i').test(s))return '3A';return null}
 function parseTravellers(t){if(ALL_RE.test(t))return PROFILE.travellers.map(x=>x.id);const ids=[];HI_REL.forEach(([re,id])=>{if(re.test(t)&&PROFILE.travellers.some(p=>p.id===id))ids.push(id)});
  PROFILE.travellers.forEach(p=>{const fn=p.name.split(' ')[0];if((hasWord(t,fn)||fuzzyWord(t,fn))&&!ids.includes(p.id))ids.push(p.id)});
  if(ids.length&&/(saath|साथ|with|aur|और|and|\bhum\b|हम)/i.test(t)&&!ids.includes('me')&&!/(sirf|केवल|only|akele|अकेले)/i.test(t))ids.push('me');return ids.length?ids:null}
@@ -1713,7 +1723,7 @@ function askFor(miss,lang){const q=[];const names=PROFILE.travellers.filter(t=>t
   if(m==='from')q.push(say(lang,`कहाँ से चलेंगे — क्या ${home} से ही?`,`Kahan se chalenge — kya ${home} se hi?`,`Where will you start from — ${home}?`));
   if(m==='date')q.push(LA.state.date==='vague'?say(lang,'कौन-सी तारीख़ को? जैसे 14 नवंबर या शनिवार।','Kaunsi date? Jaise 14 November ya Saturday.','Which exact date? For example 14 November or Saturday.'):say(lang,'किस तारीख़ को जाना है?','Kis date ko jaana hai?','Which date do you want to travel?'));
   if(m==='trav'&&(LA.askedTrav=true))q.push(say(lang,`आपके साथ कौन-कौन जाएगा? ${names} — या कोई और?`,`Aapke saath kaun kaun jayega? ${names} — ya koi aur?`,`Who is travelling with you? ${names} — or someone else?`));
-  if(m==='cls'){const p=party();const sug=p.seniors||p.children?'3A':'SL';q.push(say(lang,`कौन-सी क्लास? ${p.seniors?'बुज़ुर्गों के आराम के लिए ':''}${sug==='3A'?'थर्ड एसी (3A)':'स्लीपर'} ठीक रहेगा?`,`Kaunsi class? ${sug==='3A'?'3rd AC (3A)':'Sleeper'} theek rahega?`,`Which class? Shall I take ${sug==='3A'?'AC 3-tier (3A)':'Sleeper'}${p.seniors?' for comfort':''}?`));LA.suggestCls=sug}
+  if(m==='cls'){const p=party();const sug=p.seniors||p.children?'3A':'SL';q.push(say(lang,`कौन-सी क्लास? ${p.seniors?'बुज़ुर्गों के आराम के लिए ':''}${sug==='3A'?'थर्ड एसी (3A)':'स्लीपर'} ठीक रहेगा? या बोलिए: स्लीपर, थर्ड एसी, सेकंड एसी, फर्स्ट एसी या चेयर कार।`,`Kaunsi class? ${sug==='3A'?'3rd AC (3A)':'Sleeper'} theek rahega? Ya boliye: Sleeper, 3rd AC, 2nd AC, 1st AC ya Chair Car.`,`Which class? Shall I take ${sug==='3A'?'AC 3-tier (3A)':'Sleeper'}${p.seniors?' for comfort':''}? Or say Sleeper, AC 3-tier, AC 2-tier, AC First or Chair Car.`));LA.suggestCls=sug}
  }return q.join(' ')}
 function summaryLine(lang){const p=party();const who=PROFILE.travellers.filter(t=>S.sel.has(t.id)).map(t=>t.name.split(' ')[0]).join(', ');
  return say(lang,`${placeName(S.from)} से ${placeName(S.to)}, ${dlabel()}, ${p.total} यात्री (${who}), ${S.cls}, ${QUOTAS[S.quota]} कोटा।`,`${placeName(S.from)} se ${placeName(S.to)}, ${dlabel()}, ${p.total} log (${who}), ${S.cls}, ${QUOTAS[S.quota]} quota.`,`${placeName(S.from)} to ${placeName(S.to)}, ${dlabel()}, ${p.total} traveller${p.total>1?'s':''} (${who}), ${S.cls}, ${QUOTAS[S.quota]} quota.`)}
@@ -1790,13 +1800,13 @@ function optLine(o,lang){const j=o.j,L=j.legs;return o.k==='d'?`${L[0].no} ${say
 function openOpt(o,lang,why){S.pick=o.j;LA.stage='offer';LA.paxDone=false;LA.payDone=false;LA.optKey=o.j.legs.map(l=>l.no).join('+');go('option');addAct('Opened '+LA.optKey);
  return (why?why+' ':'')+optLine(o,lang)+'. '+say(lang,'आगे बढ़ूँ?','Aage badhun?','Shall I continue?')}
 const ORD={'पहला':1,'पहली':1,'दूसरा':2,'दूसरी':2,'तीसरा':3,'तीसरी':3,'चौथा':4,'चौथी':4,'पाँचवाँ':5,'पांचवा':5,first:1,second:2,third:3,fourth:4,fifth:5,pehla:1,pehli:1,doosra:2,dusra:2,teesra:3,tisra:3,chautha:4};
-function browseReply(t,lang){if(!S.res||S.booked)return null;const O=chatOpts();const cur=O.findIndex(o=>o.j.legs.map(l=>l.no).join('+')===(S.pick?S.pick.legs.map(l=>l.no).join('+'):''));
+function browseReply(t,lang){if(!S.res||S.booked)return null;if(!['offer','results'].includes(LA.stage)&&!/(train|ट्रेन|गाड़ी|gaadi|option|विकल्प|ऑप्शन|(^|\D)\d{5}(\D|$))/i.test(t))return null;const O=chatOpts();const cur=O.findIndex(o=>o.j.legs.map(l=>l.no).join('+')===(S.pick?S.pick.legs.map(l=>l.no).join('+'):''));
  const tn=t.match(/(?:^|\D)(\d{5})(?!\d)/);if(tn){const o=O.find(o=>o.j.legs.some(l=>String(l.no)===tn[1]));if(o)return openOpt(o,lang);const d=S.res.direct.find(x=>String(x.no)===tn[1]);if(d)return say(lang,`${d.no} में ${d.hasCls?d.av.s+' '+d.av.n:S.cls+' नहीं है'}, इसलिए यह बुक नहीं हो सकती। `,`${d.no} mein ${d.hasCls?d.av.s+' '+d.av.n:'ye class nahi'}, isliye book nahi ho sakti. `,`${d.no} is ${d.hasCls?d.av.s+' '+d.av.n:'without '+S.cls}, so it cannot be booked. `)+listOpts(O,lang);return null}
  const isList=/(सारे|सभी|सब (ट्रेन|विकल्प|ऑप्शन)|all (the )?(trains|options)|list|show (me )?(the )?(options|trains)|sab (train|options|vikalp)|options dikhao|विकल्प दिखा|kaun kaun si train|कौन-कौन सी ट्रेन|more options|aur options|और विकल्प)/i.test(t);
  const num=t.match(/^\s*(?:option|विकल्प|number|नंबर|no\.?)?\s*(\d)\s*(?:st|nd|rd|th|वाला|वाली|wala|wali)?\s*[.!?]?\s*$/i)||t.match(/(?:option|विकल्प|number|नंबर)\s*(\d)\b/i);
  const ordW=Object.keys(ORD).find(w=>hasWord(t,w)&&/(वाला|वाली|wala|wali|option|विकल्प|one\b|train|ट्रेन)/i.test(t));
  const another=/(दूसरी ट्रेन|दूसरा विकल्प|दूसरा ऑप्शन|और कोई|कोई और|koi aur|koi dusri|doosri train|dusri train|another|other (train|option)|next (train|option)|^\s*next\s*$|different (train|option)|alag train|aur train|कोई दूसरी|अगली|agli|aur dikhao|और दिखाओ|something else)/i.test(t);
- const direct=/(direct|सीधी|सीधा|seedhi|sidhi|bina badle|बिना बदले|no change)/i.test(t);
+ const direct=/(direct|सीधी|सीधा|seedhi|sidhi|bina badle|बिना बदले)/i.test(t);
  const fastest=/(fastest|quickest|सबसे जल्दी|जल्दी पहुँच|jaldi|kam samay|कम समय|shortest)/i.test(t);
  const slot=/(morning|subah|सुबह)/i.test(t)?[4,12]:/(afternoon|dopahar|दोपहर)/i.test(t)?[12,17]:/(evening|shaam|शाम)/i.test(t)?[17,21]:/(night|raat|रात)/i.test(t)?[21,28]:null;
  if(!(isList||num||ordW||another||direct||fastest||slot))return null;
@@ -1820,8 +1830,27 @@ function whoIn(seg){if(ALL_RE.test(seg)||/(सबको|sabko|baaki|बाकी
  HI_REL.forEach(([re,id])=>{if(id!=='me'&&re.test(seg)&&S.sel.has(id))ids.push(id)});
  travellers().forEach(p=>{const fn=p.name.split(' ')[0];if(new RegExp('\\b'+fn+'\\b','i').test(seg)&&!ids.includes(p.id))ids.push(p.id)});
  if(!ids.length&&ME_RE.test(seg)&&S.sel.has('me'))ids.push('me');return ids}
-function applyWords(t,key,words){let n=0;t.split(/,|।|;|\n|\band\b|\baur\b|और/i).forEach(seg=>{const w=words.find(([re])=>re.test(seg));if(!w)return;const ids=whoIn(seg);
- (ids.length?ids:(travellers().length===1?[travellers()[0].id]:[])).forEach(id=>{const tr=PROFILE.travellers.find(x=>x.id===id);if(tr){tr[key]=w[1];n++}})});return n}
+function mentionsIn(t){const M=[];const add=(id,i,len)=>{if(S.sel.has(id))M.push({id,pos:i,end:i+len})};
+ HI_REL.forEach(([re,id])=>{if(id==='me')return;const g=new RegExp(re.source,'gi');let m;while((m=g.exec(t))){add(id,m.index,m[0].length);if(!m[0].length)g.lastIndex++}});
+ travellers().forEach(p=>{const fn=p.name.split(' ')[0];const g=new RegExp('(^|[^'+LTR+'])('+fn.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')(?=$|[^'+LTR+'])','gi');let m;while((m=g.exec(t)))add(p.id,m.index+m[1].length,m[2].length);
+  (t.match(/[A-Za-z]{3,}/g)||[]).forEach(w=>{if(w.toLowerCase()!==fn.toLowerCase()&&fuzzyWord(w,fn)){const i=t.indexOf(w);if(i>=0)add(p.id,i,w.length)}})});
+ const g=/(मुझे|मेरे लिए|मेरी|मेरा|मैं|mujhe|mere liye|meri|mera|\bme\b|\bmy\b|myself|\bmain\b|\bi\b|\bmine\b|अपने लिए|apne liye)/gi;let m;
+ while((m=g.exec(t))){const after=t.slice(m.index+m[0].length,m.index+m[0].length+14);if(/^(\s*)(papa|पापा|mummy|मम्मी|माँ|wife|पत्नी|बीवी|beta|बेटा|son|father|mother|dad|mom|friend|dost|दोस्त|bhai|भाई|behen|बहन|sister|brother|husband|पति|beti|बेटी|daughter)/i.test(after))continue;add('me',m.index,m[0].length)}
+ M.sort((a,b)=>a.pos-b.pos);return M.filter((x,i)=>!M.some((y,j)=>j!==i&&y.pos<=x.pos&&y.end>=x.end&&(y.end-y.pos)>(x.end-x.pos)))}
+function applyWords(t,key,words){const tv=travellers();const W=[];words.forEach(([re,val])=>{const g=new RegExp(re.source,'gi');let m;while((m=g.exec(t))){if(!W.some(w=>m.index<w.end&&m.index+m[0].length>w.pos))W.push({val,pos:m.index,end:m.index+m[0].length});if(!m[0].length)g.lastIndex++}});
+ if(!W.length)return 0;W.sort((a,b)=>a.pos-b.pos);
+ const all=/(all|everyone|everybody|sab|sabhi|sabko|sabke|सब|सभी|सबको|सबके|whole family|पूरे परिवार|baaki|बाकी|rest|others)/i.test(t);
+ const M=mentionsIn(t);let n=0;const set=(id,v)=>{const tr=PROFILE.travellers.find(x=>x.id===id);if(tr&&tr[key]!==v){tr[key]=v}if(tr)n++};
+ if(!M.length){if(all){tv.forEach(x=>set(x.id,W[0].val));return n}
+  if(tv.length===1){set(tv[0].id,W[0].val);return n}if(S.sel.has('me')){set('me',W[0].val);LA.assumedMe=true;return n}return -1}
+ const berthFirst=W[0].pos<M[0].pos;let last=null;
+ M.forEach((mm,i)=>{const lo=i?M[i-1].end:0,hi=i<M.length-1?M[i+1].pos:t.length;let w;
+  if(berthFirst)w=[...W].reverse().find(x=>x.end<=mm.pos&&x.pos>=lo)||W.find(x=>x.pos>=mm.end&&x.pos<hi&&!M.slice(i+1).length);
+  else w=W.find(x=>x.pos>=mm.end&&x.pos<hi)||[...W].reverse().find(x=>x.end<=mm.pos&&x.pos>=lo&&!(i&&M[i-1]._w===x));
+  if(!w&&berthFirst)w=W.find(x=>x.pos>=mm.end&&x.pos<hi);
+  mm._w=w||last;if(mm._w){set(mm.id,mm._w.val);last=mm._w}});
+ if(all&&/(baaki|बाकी|rest|others|बाक़ी)/i.test(t)){const named=new Set(M.map(x=>x.id));const wAll=W[W.length-1];tv.forEach(x=>{if(!named.has(x.id))set(x.id,wAll.val)})}
+ return n}
 function seatDefaults(){const cc=S.cls==='CC';travellers().forEach(x=>{if(!x.berth||(cc?!SEAT_PREF.includes(x.berth):!BERTH_PREF.includes(x.berth)))x.berth=(!cc&&x.age>=60)?'Lower':'No preference';if(!x.food)x.food='Veg'})}
 function berthList(lang){const cc=S.cls==='CC';return travellers().map(x=>{const fn=x.name.split(' ')[0]+(lang==='en'||x.age<12||x.id==='me'?'':' जी');const b=x.berth&&x.berth!=='No preference'?x.berth:say(lang,'कोई भी','koi bhi','any');return fn+': '+b}).join(', ')}
 function foodList(lang){const f=[...new Set(travellers().map(x=>x.food||'Veg'))];return f.length===1?say(lang,'सबके लिए '+f[0],'sabke liye '+f[0],f[0]+' for everyone'):travellers().map(x=>x.name.split(' ')[0]+': '+(x.food||'Veg')).join(', ')}
@@ -1859,9 +1888,12 @@ function localReply(text,lang){lang=lang||detLang(text);const t=text;const st=LA
  if(['pax','food','ins','cover','pay','confirming'].includes(LA.stage)&&S.pick&&!S.booked&&!findPlaces(t).length&&!parseDate(t)){
   const oc=/(sirf|only|केवल|सिर्फ़|सिर्फ)\s*.{0,12}(confirm|कन्फ़र्म|कंफर्म|कन्फर्म)/i.test(t);if(oc){S.onlyConfirmed=true;render()}
   const sc=/(same coach|एक ही कोच|ek hi coach)/i.test(t);if(sc){S.sameCoach=true;render()}
-  if(LA.stage==='pax'){const n=applyWords(t,'berth',S.cls==='CC'?SWORDS:BWORDS);if(n){render();return say(lang,`बदल दिया: ${berthList(lang)}। और कुछ बदलना है? नहीं तो "हाँ" बोलिए।`,`Badal diya: ${berthList(lang)}. Aur kuch? Nahi toh "haan" boliye.`,`Updated: ${berthList(lang)}. Anything else? If not, say "yes".`)}
-   if(isYes(t)||isNo(t)||oc||sc)return askFood(lang)}
-  else if(LA.stage==='food'){const n=applyWords(t,'food',FWORDS);if(n){render();return say(lang,`खाना: ${foodList(lang)}। ठीक है?`,`Khana: ${foodList(lang)}. Theek hai?`,`Food: ${foodList(lang)}. Is that fine?`)}
+  if(LA.stage==='pax'){LA.assumedMe=false;const n=applyWords(t,'berth',S.cls==='CC'?SWORDS:BWORDS);const me=(PROFILE.travellers.find(x=>x.id==='me')||{name:''}).name.split(' ')[0];
+   if(n>0){render();return (LA.assumedMe?say(lang,`आपके (${me}) लिए। `,`Aapke (${me}) liye. `,`For you (${me}). `):'')+say(lang,`बदल दिया: ${berthList(lang)}। और कुछ बदलना है? नहीं तो "हाँ" बोलिए।`,`Badal diya: ${berthList(lang)}. Aur kuch? Nahi toh "haan" boliye.`,`Updated: ${berthList(lang)}. Anything else? If not, say "yes".`)}
+   if(n<0)return say(lang,'किसके लिए? नाम के साथ बोलिए, जैसे "प्रिया अपर", या "सबको लोअर"।','Kiske liye? Naam ke saath boliye, jaise "Priya upper", ya "sabko lower".','For whom? Say it with a name, e.g. "Priya upper", or "lower for all".');
+   if(isYes(t)||isNo(t)||oc||sc||/(no change|koi badlav nahi|कोई बदलाव नहीं|that'?s fine|sahi hai|सही है|done|बस)/i.test(t))return askFood(lang);
+   if(!LA.tryAI)return say(lang,`समझ नहीं पाया। ऐसे बोलिए: "प्रिया अपर", "मुझे लोअर", "सबको लोअर", या ठीक हो तो "हाँ"। अभी: ${berthList(lang)}।`,`Samajh nahi paya. Aise boliye: "Priya upper", "mujhe lower", "sabko lower", ya theek ho toh "haan". Abhi: ${berthList(lang)}.`,`I did not catch that. Try "Priya upper", "lower for me", "all lower", or "yes" if it is fine. Now: ${berthList(lang)}.`)}
+  else if(LA.stage==='food'){const n=applyWords(t,'food',FWORDS);if(n<0)return say(lang,'किसके लिए? जैसे "प्रिया नॉन-वेज" या "सबके लिए वेज"।','Kiske liye? Jaise "Priya non-veg" ya "sabke liye veg".','For whom? e.g. "Priya non-veg" or "veg for all".');if(n>0){render();return say(lang,`खाना: ${foodList(lang)}। ठीक है?`,`Khana: ${foodList(lang)}. Theek hai?`,`Food: ${foodList(lang)}. Is that fine?`)}
    if(isYes(t)||oc||sc)return askIns(lang);if(isNo(t))return say(lang,'कौन-सा खाना चाहिए: वेज, नॉन-वेज, जैन या खाना नहीं? नाम के साथ बताइए, जैसे "प्रिया नॉन-वेज"।','Kaunsa khana: veg, non-veg, Jain ya no food? Jaise "Priya non-veg".','Which food: Veg, Non-veg, Jain or no food? For example "Priya non-veg".')}
   else if(LA.stage==='ins'){if(isYes(t)||isNo(t)){S.insure=isYes(t);render();return S.pick.kind==='c'?askCover(lang):startPay(lang)}}
   else if(LA.stage==='cover'){if(isYes(t)||isNo(t)){S.cover=isYes(t);render();return startPay(lang)}}
