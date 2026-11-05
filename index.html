@@ -894,10 +894,10 @@ V.pay=()=>{const j=S.pick,n=npax();chrome('Review & pay',`${short(S.from)} → $
  <div id="payProg"></div>
  <button class="btn c big" id="payBtn" onclick="doPay()">Pay ${inr(tot)}</button>
  <div class="tiny muted" style="text-align:center">Demo payment: no money moves. Partner add-ons (hotel, bundle) are paid separately through an authorised payment aggregator.</div>`};
-function doPay(){const j=S.pick;const btn=document.getElementById('payBtn');btn.disabled=true;const box=document.getElementById('payProg');
+function doPay(onDone){if(S.view!=='pay'){S.view='pay';render()}const j=S.pick;const btn=document.getElementById('payBtn');if(!btn||btn.disabled)return;btn.disabled=true;const box=document.getElementById('payProg');
  const steps=['Payment authorised (simulated)'];if(j.kind==='c'){const scarce=(j.legs[0].av.n<=j.legs[1].av.n)?0:1;steps.push(`Booking the scarcer leg first: ${j.legs[scarce].no}`,`PNR 1 generated`,`Booking ${j.legs[1-scarce].no}`,`PNR 2 generated`,'Linking both PNRs (connecting-journey facility)')}else steps.push('Booking with PRS (simulated)','PNR generated');
  let k=0;box.innerHTML='<div class="card stack" id="pp"></div>';const pp=document.getElementById('pp');
- const tick=()=>{if(k<steps.length){pp.insertAdjacentHTML('beforeend',`<div class="small">✓ ${steps[k]}</div>`);k++;setTimeout(tick,450)}else{finalizeBooking();go('trip',false);S.stack=['home'];toast(j.kind==='c'?'Both tickets booked and linked':'Ticket booked')}};tick()}
+ const tick=()=>{if(k<steps.length){pp.insertAdjacentHTML('beforeend',`<div class="small">✓ ${steps[k]}</div>`);k++;setTimeout(tick,450)}else{finalizeBooking();go('trip',false);S.stack=['home'];toast(j.kind==='c'?'Both tickets booked and linked':'Ticket booked');if(typeof onDone==='function')onDone()}};tick()}
 
 /* ----- Booking: PNRs, coaches and berths ----- */
 function allot(leg,legIdx,pnrNo){const C=COACH[S.cls];const n=npax();const seed=hsh(pnrNo+leg.no);const cno=1+(seed%C.n);const coach=C.p+cno;let next=1+(seed>>>8)%(C.b-12);const taken=new Set();
@@ -1582,21 +1582,29 @@ const TOOLS=[
  {name:'find_place',description:'Look up any Indian city, town or station (English name, e.g. "Varanasi", "Guwahati", "Katra"). Returns candidates with station codes and notes (e.g. capitals without a railway map to the nearest railhead). Translate Hindi names to English before calling.',inputSchema:{type:'object',properties:{query:{type:'string'}},required:['query']},
   execute:({query})=>{const r=RAIL.find(query,5);if(!r.length)throw new Error('No station found for "'+query+'". Ask the user for a nearby bigger town.');return r.map((x,i)=>({index:i,label:x.label,codes:x.codes,note:x.note,train_stops:x.trains}))}},
  {name:'set_trip',description:'Fill the search form on screen. Pass only what the user has told you. from/to: the exact "query" you used in find_place plus the chosen index. traveller_ids: ids from get_profile. guests: extra people not in the profile. Max 6 people total. Date YYYY-MM-DD. Class SL, 3A, 2A, 1A or CC.',
-  inputSchema:{type:'object',properties:{from_query:{type:'string'},from_index:{type:'integer'},to_query:{type:'string'},to_index:{type:'integer'},date:{type:'string'},cls:{type:'string',enum:['SL','3A','2A','1A','CC']},traveller_ids:{type:'array',items:{type:'string'}},guests:{type:'object',properties:{adults:{type:'integer'},seniors:{type:'integer'},children:{type:'integer'}}}}},
+  inputSchema:{type:'object',properties:{from_query:{type:'string'},from_index:{type:'integer'},to_query:{type:'string'},to_index:{type:'integer'},date:{type:'string'},cls:{type:'string',enum:['SL','3A','2A','1A','CC']},quota:{type:'string',enum:Object.keys(QUOTAS)},traveller_ids:{type:'array',items:{type:'string'}},guests:{type:'object',properties:{adults:{type:'integer'},seniors:{type:'integer'},children:{type:'integer'}}}}},
   execute:(i)=>{if(i.from_query){const r=RAIL.find(i.from_query,5)[i.from_index||0];if(!r)throw new Error('from not found');S.from=r}
    if(i.to_query){const r=RAIL.find(i.to_query,5)[i.to_index||0];if(!r)throw new Error('to not found');S.to=r}
-   if(i.date)S.date=i.date;if(i.cls){S.cls=i.cls;S.tier=BUNDLE_TIER[i.cls]}
+   if(i.date)S.date=i.date;if(i.cls){S.cls=i.cls;S.tier=BUNDLE_TIER[i.cls]}if(i.quota)S.quota=i.quota;
    if(i.traveller_ids){const ids=i.traveller_ids.filter(x=>PROFILE.travellers.some(t=>t.id===x));S.sel=new Set(ids)}
    if(i.guests)S.guests={adults:i.guests.adults||0,seniors:i.guests.seniors||0,children:i.guests.children||0};
    if(npax()>6)throw new Error('More than 6 people: one e-ticket holds 6. Ask the user to split the group or use Group booking.');
    S.res=null;S.pick=null;S.booked=false;S.delay=false;S.stack=[];go('home',false);addAct('Form updated');return stateSummary()}},
  {name:'search_trains',description:'Search with the current form and show results on screen. Only call once from, to, date, travellers and class are known.',inputSchema:{type:'object',properties:{}},
-  execute:()=>{if(!S.from||!S.to)throw new Error('From or To missing');if(npax()<1)throw new Error('No travellers selected');S.pick=null;S.booked=false;runSearch();go('results');addAct('Searched trains');return sumResults()}},
+  execute:()=>{if(!S.from||!S.to)throw new Error('From or To missing');if(npax()<1)throw new Error('No travellers selected');const qe=validateQuota();if(qe)throw new Error(qe);S.pick=null;S.booked=false;S.booking=null;LA.paxDone=false;LA.payDone=false;runSearch();go('results');addAct('Searched trains');return sumResults()}},
  {name:'choose_option',description:'Open a result by id (D1.. for direct trains, C1.. for connecting options). Waitlisted direct trains and too-tight or non-bookable connections cannot be chosen.',inputSchema:{type:'object',properties:{id:{type:'string'}},required:['id']},
-  execute:({id})=>{if(!S.res)throw new Error('Search first');if(id[0]==='D'){const d=S.res.direct.find(x=>x._id===id);if(!d)throw new Error('No such id');if(!d.hasCls||d.av.s==='WL')throw new Error('This direct train is waitlisted or lacks the class; suggest a connecting option.');S.pick=mkJourney(d,'d')}else{const c=S.res.conns.find(x=>x._id===id);if(!c)throw new Error('No such id');if(!c.ok)throw new Error('Not bookable: below safe minimum wait or a leg is waitlisted.');S.pick=mkJourney(c,'c')}go('option');addAct('Opened '+id);return {id,fare_total_for_party:jTotal(S.pick)}}},
+  execute:({id})=>{if(!S.res)throw new Error('Search first');if(id[0]==='D'){const d=S.res.direct.find(x=>x._id===id);if(!d)throw new Error('No such id');if(!d.hasCls||d.av.s==='WL')throw new Error('This direct train is waitlisted or lacks the class; suggest a connecting option.');S.pick=mkJourney(d,'d')}else{const c=S.res.conns.find(x=>x._id===id);if(!c)throw new Error('No such id');if(!c.ok)throw new Error('Not bookable: below safe minimum wait or a leg is waitlisted.');S.pick=mkJourney(c,'c')}LA.paxDone=false;LA.payDone=false;go('option');addAct('Opened '+id);return {id,fare_total_for_party:jTotal(S.pick),next:'Ask: shall I continue? Then passenger details (berth, food), then payment.'}}},
  {name:'set_trip_cover',description:'Turn the optional ₹49/person trip cover on or off (connections only).',inputSchema:{type:'object',properties:{on:{type:'boolean'}},required:['on']},execute:({on})=>{S.cover=on;render();addAct('Trip cover '+(on?'on':'off'));return {trip_cover:on}}},
- {name:'request_booking',description:'Show a Confirm button for the selected option. Does NOT book. Never say it is booked until the user taps it.',inputSchema:{type:'object',properties:{}},
-  execute:()=>{if(!S.pick)throw new Error('Choose an option first');const n=npax();const amt=jTotal(S.pick);showConfirm(amt);return {status:'waiting_for_user_tap',amount:amt}}},
+ {name:'set_passenger_details',description:'Step 2 of booking (same as the Passengers screen). Opens it and sets per-traveller berth (or seat for CC) and food, plus ticket options. Berth: No preference, Lower, Middle, Upper, Side Lower, Side Upper. Seat (CC): No preference, Window, Aisle, Middle. Food: Veg, Non-veg, Jain, No food.',
+  inputSchema:{type:'object',properties:{passengers:{type:'array',items:{type:'object',properties:{traveller_id:{type:'string'},berth:{type:'string'},food:{type:'string'}},required:['traveller_id']}},only_confirmed:{type:'boolean'},same_coach:{type:'boolean'},insurance:{type:'boolean'},trip_cover:{type:'boolean'}}},
+  execute:(i)=>{if(!S.pick)throw new Error('Choose an option first');const okB=S.cls==='CC'?SEAT_PREF:BERTH_PREF;
+   (i.passengers||[]).forEach(p=>{const tr=travellers().find(x=>x.id===p.traveller_id);if(!tr)return;if(p.berth&&okB.includes(p.berth))tr.berth=p.berth;if(p.food&&FOOD.includes(p.food))tr.food=p.food});
+   if(i.only_confirmed!=null)S.onlyConfirmed=i.only_confirmed;if(i.same_coach!=null)S.sameCoach=i.same_coach;if(i.insurance!=null)S.insure=i.insurance;if(i.trip_cover!=null&&S.pick.kind==='c')S.cover=i.trip_cover;
+   LA.paxDone=true;go('pax');addAct('Passenger details updated');return paxSummary()}},
+ {name:'set_payment_method',description:'Step 3 of booking (same as the Review & pay screen). Opens it and sets the method: upi, card, nb (net banking), ipay, wallet. Returns the fare summary.',inputSchema:{type:'object',properties:{method:{type:'string',enum:['upi','card','nb','ipay','wallet']}},required:['method']},
+  execute:({method})=>{if(!S.pick)throw new Error('Choose an option first');S.payMethod=method;LA.payDone=true;go('pay');addAct('Payment method: '+method);return {method,total_payable:jTotal(S.pick)}}},
+ {name:'request_booking',description:'Last step: shows the Pay button in chat (the same payment as the Review & pay screen). Only after set_passenger_details and set_payment_method. Does NOT book. Never say it is booked until the user taps it.',inputSchema:{type:'object',properties:{}},
+  execute:()=>{if(!S.pick)throw new Error('Choose an option first');if(!LA.paxDone)throw new Error('Ask berth and food preferences and call set_passenger_details first.');if(!LA.payDone)throw new Error('Ask the payment method and call set_payment_method first.');const amt=jTotal(S.pick);showConfirm(amt);return {status:'waiting_for_user_tap',amount:amt}}},
  {name:'open_screen',description:'Navigate: home, results, option, trip, yatra (hub), builder (package list), pkg (package page), custom (customise package), departures, group (group booking), door (station help), delay, profile.',inputSchema:{type:'object',properties:{screen:{type:'string',enum:['home','results','option','trip','yatra','builder','pkg','custom','departures','group','door','delay','profile']}},required:['screen']},execute:({screen})=>{go(screen);addAct('Opened '+screen);return stateSummary()}},
  {name:'plan_yatra',description:'Open an IRCTC pilgrimage package. circuit: chardham, dodham, vaishno, kashi, jyoti, puri. Booking options as on IRCTC: date YYYY-MM-DD, train 3A/SL/none (from the user city), rooms double/triple/single. Customisations (MakeMyTrip-style, priced change by change): vehicle shared/suv/tt, hotel state/package/premium (all stops), kedarnath walk/pony/palki/heliS/heliP/heliG, rest_days true (rest days in the hills; needs a private vehicle). customise=true opens the Customise screen. Returns the as-is and customised prices.',inputSchema:{type:'object',properties:{circuit:{type:'string',enum:Object.keys(CIRCUITS)},date:{type:'string'},train:{type:'string',enum:['3A','SL','none']},rooms:{type:'string',enum:['double','triple','single']},vehicle:{type:'string',enum:['shared','suv','tt']},hotel:{type:'string',enum:['state','package','premium']},kedarnath:{type:'string',enum:['walk','pony','palki','heliS','heliP','heliG']},rest_days:{type:'boolean'},customise:{type:'boolean'}},required:['circuit']},
   execute:(i)=>{const P=PKGS.find(p=>p.c===i.circuit)||PKGS[0];if(S.pk.id!==P.id||S.pk.mode==='dep'){const f=S.pk.from;S.pk=PK0(P.id);S.pk.from=f}const pk=S.pk;
@@ -1613,16 +1621,17 @@ const TOOLS=[
   execute:({name,age,relation})=>{const id=addTraveller(name,age,relation);if(S.view==='profile')render();addAct('Saved '+name);return {id}}},
  {name:'explain',description:'Approved explanation text for a topic. Use for rules, prices and numbers.',inputSchema:{type:'object',properties:{topic:{type:'string',enum:Object.keys(INFO)}},required:['topic']},execute:({topic})=>INFO[topic]},
 ];
-function showConfirm(amt){const j=S.pick;const c=document.createElement('div');c.className='confirm';
- c.innerHTML=`<b>Confirm booking?</b><div>${short(S.from)} → ${j.kind==='c'?j.viaName+' → ':''}${short(S.to)} · ${dlabel()} · ${npax()} यात्री · ${S.cls}</div><div><b>${inr(amt)}</b></div><div class="row" style="gap:8px"><button class="btn c" style="padding:10px">हाँ, बुक करें</button><button class="btn ghost" style="padding:10px">नहीं</button></div>`;
+function showConfirm(amt){const j=S.pick;if(S.view!=='pay')go('pay');amt=jTotal(j);const c=document.createElement('div');c.className='confirm';
+ const pm={upi:'UPI',card:'Card',nb:'Net banking',ipay:'IRCTC iPay',wallet:'Wallet'}[S.payMethod||'upi'];
+ c.innerHTML=`<b>Pay and book?</b><div>${short(S.from)} → ${j.kind==='c'?j.viaName+' → ':''}${short(S.to)} · ${dlabel()} · ${npax()} यात्री · ${S.cls} · ${QUOTAS[S.quota]}</div><div class="small muted">Berths: ${travellers().map(x=>x.name.split(' ')[0]+' '+(x.berth&&x.berth!=='No preference'?x.berth:'any')).join(', ')} · Pay by ${pm}</div><div><b>${inr(amt)}</b></div><div class="row" style="gap:8px"><button class="btn c" style="padding:10px">${inr(amt)} पे करें</button><button class="btn ghost" style="padding:10px">नहीं</button></div>`;
  const [y,n]=c.querySelectorAll('button');
- y.onclick=()=>{confirmBook();c.innerHTML='<b style="color:var(--door)">✓ बुकिंग हो गई (demo)</b>';sendChat('[User tapped Confirm. Booking done. Confirm briefly and suggest the next useful thing from the trip page.]',true)};
- n.onclick=()=>{c.innerHTML='<span class="muted">Booking cancelled by you.</span>'};
+ y.onclick=()=>{y.disabled=true;n.disabled=true;c.innerHTML='<span class="muted">भुगतान हो रहा है… स्क्रीन पर देखें</span>';doPay(()=>{c.innerHTML='<b style="color:var(--door)">✓ भुगतान और बुकिंग हो गई (demo)</b>';sendChat('[User tapped Confirm. Booking done. Confirm briefly and suggest the next useful thing from the trip page.]',true)})};
+ n.onclick=()=>{c.innerHTML='<span class="muted">Booking cancelled by you. आप स्क्रीन पर विवरण बदल सकते हैं।</span>';if(LA.stage==='confirming')LA.stage='pay'};
  const box=document.getElementById('msgs');box.appendChild(c);box.scrollTop=box.scrollHeight}
 const SYS=()=>`You are "Yatra Saathi", a warm vernacular travel assistant inside "IRCTC Safar", a student concept prototype of the IRCTC app (SPJIMR project). You OPERATE the app with tools; the screen changes as you call them. The timetable is real (2016 open data) for any Indian station; seats are simulated and fares estimated.
 
 HOW TO HELP
-1. Never assume. Before searching you need five things: FROM, TO, DATE, WHO is travelling, CLASS.
+1. Never assume. Before searching you need five things: FROM, TO, DATE, WHO is travelling, CLASS. Quota is General unless the user asks for Tatkal, Premium Tatkal, Ladies or Senior Citizen; say the quota in your summary.
 2. Start by calling get_profile. Ask who is travelling by offering the saved travellers BY NAME (e.g. "आप के साथ कौन चलेगा — पापा रमेश जी (64), माँ सुनीता जी, प्रिया जी, आरव (9)? या कोई और?"). If someone new is going, ask name and age and whether to save them (add_traveller) or add as a guest.
 3. For FROM, the profile home city is a suggestion only: ask "क्या कानपुर से ही?" rather than assuming.
 4. Ask at most two short questions per message. Accept partial answers and fill the form as you learn (set_trip with only known fields) so the user sees progress.
@@ -1631,7 +1640,11 @@ HOW TO HELP
 7. Use find_place for every place; if several candidates, ask which one. If there is a note (no railway, nearest railhead), tell the user.
 8. When all five are known, give a one-line summary, then call search_trains. Explain results simply: if direct trains are waitlisted, recommend the best bookable Connect+ option (bookable=true) and open it with choose_option. Mention anything marked simulated as "demo train".
 9. Proactively offer the relevant feature: seniors/children or night arrival → porter and auto (Station to Door); wait over 3 hours → place to wait; pilgrimage destination or a request like Char Dham → plan_yatra (opens the IRCTC package; it can be booked as is or customised); travelling as a big family → group booking.
-10. Booking always goes through request_booking and the user's tap. Never claim a ticket is booked before that.
+10. Booking follows the same three steps as the app screens, never skipped:
+   a) Journey: after choose_option, ask "shall I continue?".
+   b) Passengers: suggest berths (Lower for 60+, otherwise no preference; seats for CC) naming each traveller, and food (default Veg); ask insurance (₹0.45 per passenger) and, for connections, trip cover (₹49). Apply with set_passenger_details.
+   c) Payment: say the total and ask the method (UPI, card, net banking, IRCTC iPay, wallet); apply with set_payment_method.
+   Then call request_booking. The user's tap pays and books. Never claim a ticket is booked before that.
 11. Never invent fares, trains or rules: use tool results or explain().
 
 SPEECH: replies may be read aloud, so write plain sentences: no emojis, bullets, markdown or symbols like → ; write times as "सुबह 7:05".
@@ -1668,7 +1681,7 @@ function findPlaces(text){const found=[];const t=' '+text+' ';
  const keys=['kanpur','katra','vaishno devi','delhi','new delhi','mumbai','bombay','kolkata','calcutta','chennai','madras','bengaluru','bangalore','hyderabad','secunderabad','lucknow','patna','varanasi','banaras','kashi','puri','haridwar','rishikesh','jammu','guwahati','jaipur','ahmedabad','bhopal','prayagraj','allahabad','ayodhya','tirupati','ujjain','agra','amritsar','pune','goa','shimla','dehradun','ranchi','bhubaneswar','raipur','chandigarh','nagpur','indore','surat','kochi','ernakulam','madurai','gaya','bodh gaya','shirdi','dwarka','rameswaram','mathura','siliguri','visakhapatnam','vizag','vijayawada','thiruvananthapuram','trivandrum','gandhinagar','agartala','shillong','gangtok','imphal','kohima','aizawl','itanagar','srinagar','jodhpur','udaipur','mysuru','mysore','coimbatore','gwalior','jabalpur','ludhiana','ambala','vadodara','nashik','khajuraho','hampi','mangaluru','puducherry','pondicherry','leh','amaravati','silchar','dibrugarh','jhansi','gorakhpur','moradabad','bareilly','meerut','aligarh','dhanbad','jamshedpur','bilaspur','darjeeling'];
  keys.sort((a,b)=>b.length-a.length).forEach(k=>{const re=new RegExp('\\b'+k+'\\b','i');const m=low.match(re);if(m&&!found.some(f=>m.index>=f.pos&&m.index<f.pos+f.len))found.push({key:k==='vaishno devi'?'katra':k==='kashi'?'varanasi':k,pos:m.index,len:k.length})});
  // unknown capitalised word or station code e.g. "NDLS"
- const code=text.match(/\b[A-Z]{2,5}\b/g);if(code)code.forEach(c=>{if(RAIL.station(c)&&!['AC','SL','CC','OK','PNR'].includes(c))found.push({key:c,pos:t.indexOf(c),len:c.length})});
+ const code=text.match(/\b[A-Z]{2,5}\b/g);if(code)code.forEach(c=>{if(RAIL.station(c)&&!['AC','SL','CC','OK','PNR','UPI','EMI','ATM','NO','YES','VEG','JAIN','GPAY','BHIM','NB','SMS','OTP'].includes(c))found.push({key:c,pos:t.indexOf(c),len:c.length})});
  found.sort((a,b)=>a.pos-b.pos);const out=[];found.forEach(f=>{if(!out.some(o=>o.key===f.key))out.push(f)});return out.map(f=>({...f,after:t.slice(f.pos+f.len,f.pos+f.len+12).toLowerCase(),before:t.slice(Math.max(0,f.pos-8),f.pos).toLowerCase()}))}
 function parseDate(text){const t=text.toLowerCase();const d=today();
  if(/(परसों|parson|parso|day after tomorrow)/i.test(t)){d.setDate(d.getDate()+2);return iso(d)}
@@ -1690,8 +1703,8 @@ const isNo=t=>/^(\s)*(नहीं|नही|nahi|nahin|no\b|nope|mat|मत|can
 function placeName(p){return p?short(p):''}
 function stepFill(lang){const msgs=[];const st=LA.state;
  // apply to app form
- if(st.from)S.from=st.from;if(st.to)S.to=st.to;if(st.date&&st.date!=='vague')S.date=st.date;if(st.cls){S.cls=st.cls;S.tier=BUNDLE_TIER[st.cls]}
- if(st.trav){S.sel=new Set(st.trav)}S.res=null;S.pick=null;S.booked=false;S.delay=false;S.stack=[];go('home',false);
+ if(st.from)S.from=st.from;if(st.to)S.to=st.to;if(st.date&&st.date!=='vague')S.date=st.date;if(st.cls){S.cls=st.cls;S.tier=BUNDLE_TIER[st.cls]}if(st.quota)S.quota=st.quota;
+ if(st.trav){S.sel=new Set(st.trav)}S.res=null;S.pick=null;S.booked=false;S.booking=null;S.delay=false;S.stack=[];go('home',false);
  const miss=[];if(!st.to)miss.push('to');if(!st.from)miss.push('from');if(!st.date||st.date==='vague')miss.push('date');if(!st.trav)miss.push('trav');if(!st.cls)miss.push('cls');return miss}
 function askFor(miss,lang){const q=[];const names=PROFILE.travellers.filter(t=>t.id!=='me').map(t=>{const fn=t.name.split(' ')[0];return lang==='en'?`${fn} (${t.rel.toLowerCase()}, ${t.age})`:(t.age<12?`${fn} (${t.age})`:`${fn} जी (${t.age})`)}).join(', ');
  const home=PROFILE.home[0].toUpperCase()+PROFILE.home.slice(1);
@@ -1703,19 +1716,44 @@ function askFor(miss,lang){const q=[];const names=PROFILE.travellers.filter(t=>t
   if(m==='cls'){const p=party();const sug=p.seniors||p.children?'3A':'SL';q.push(say(lang,`कौन-सी क्लास? ${p.seniors?'बुज़ुर्गों के आराम के लिए ':''}${sug==='3A'?'थर्ड एसी (3A)':'स्लीपर'} ठीक रहेगा?`,`Kaunsi class? ${sug==='3A'?'3rd AC (3A)':'Sleeper'} theek rahega?`,`Which class? Shall I take ${sug==='3A'?'AC 3-tier (3A)':'Sleeper'}${p.seniors?' for comfort':''}?`));LA.suggestCls=sug}
  }return q.join(' ')}
 function summaryLine(lang){const p=party();const who=PROFILE.travellers.filter(t=>S.sel.has(t.id)).map(t=>t.name.split(' ')[0]).join(', ');
- return say(lang,`${placeName(S.from)} से ${placeName(S.to)}, ${dlabel()}, ${p.total} यात्री (${who}), ${S.cls}.`,`${placeName(S.from)} se ${placeName(S.to)}, ${dlabel()}, ${p.total} log (${who}), ${S.cls}.`,`${placeName(S.from)} to ${placeName(S.to)}, ${dlabel()}, ${p.total} traveller${p.total>1?'s':''} (${who}), ${S.cls}.`)}
-function doLocalSearch(lang){runSearch();S.pick=null;go('results');addAct('Searched trains');const r=S.res;const n=npax();
+ return say(lang,`${placeName(S.from)} से ${placeName(S.to)}, ${dlabel()}, ${p.total} यात्री (${who}), ${S.cls}, ${QUOTAS[S.quota]} कोटा।`,`${placeName(S.from)} se ${placeName(S.to)}, ${dlabel()}, ${p.total} log (${who}), ${S.cls}, ${QUOTAS[S.quota]} quota.`,`${placeName(S.from)} to ${placeName(S.to)}, ${dlabel()}, ${p.total} traveller${p.total>1?'s':''} (${who}), ${S.cls}, ${QUOTAS[S.quota]} quota.`)}
+function doLocalSearch(lang){const qe=validateQuota();if(qe){LA.stage='collect';return qe+' '+say(lang,'कोटा या तारीख़ बदलूँ?','Quota ya date badlun?','Shall I change the quota or date?')}runSearch();S.pick=null;go('results');addAct('Searched trains');const r=S.res;const n=npax();
  const dAvl=r.direct.filter(d=>d.hasCls&&d.av.s==='AVL');const best=r.conns.find(c=>c.ok);
  if(dAvl.length&&(!best||dAvl[0].dur<=best.total+120)){const d=dAvl[0];S.pick=mkJourney(d,'d');LA.stage='offer';go('option');
-  return say(lang,`${d.no} ${d.name} में सीट है: ${Tt(S.pick.legs[0].t0)} पर चलकर ${Tt(S.pick.legs[0].t1)} पहुँचेगी। कुल किराया ${inr(jTotal(S.pick))}। बुक करूँ?`,`${d.no} ${d.name} mein seat hai, ${Tt(S.pick.legs[0].t0)} se ${Tt(S.pick.legs[0].t1)}. Total ${inr(jTotal(S.pick))}. Book karun?`,`${d.no} ${d.name} has seats: departs ${Tt(S.pick.legs[0].t0)}, arrives ${Tt(S.pick.legs[0].t1)}. Total ${inr(jTotal(S.pick))}. Shall I book it?`)}
+  return say(lang,`${d.no} ${d.name} में सीट है: ${Tt(S.pick.legs[0].t0)} पर चलकर ${Tt(S.pick.legs[0].t1)} पहुँचेगी। कुल किराया ${inr(jTotal(S.pick))}। आगे बढ़ूँ?`,`${d.no} ${d.name} mein seat hai, ${Tt(S.pick.legs[0].t0)} se ${Tt(S.pick.legs[0].t1)}. Total ${inr(jTotal(S.pick))}. Aage badhun?`,`${d.no} ${d.name} has seats: departs ${Tt(S.pick.legs[0].t0)}, arrives ${Tt(S.pick.legs[0].t1)}. Total ${inr(jTotal(S.pick))}. Shall I continue?`)}
  if(best){S.pick=mkJourney(best,'c');LA.stage='offer';go('option');const j=S.pick;const wl=r.direct.filter(d=>d.hasCls).length;
-  return say(lang,`${wl?'सीधी ट्रेनों में वेटिंग है। ':''}सबसे अच्छा विकल्प: ${j.legs[0].no} से ${j.viaName} (${Tt(j.legs[0].t1)}), वहाँ ${RAIL.dur(j.wait)} रुककर ${j.legs[1].no} से ${Tt(j.legs[1].t1)} तक ${placeName(S.to)}। दोनों टिकट साथ बुक और लिंक होंगे। कुल ${inr(jTotal(j))}। बुक करूँ?`,
-   `${wl?'Direct trains mein waiting hai. ':''}Best option: ${j.legs[0].no} se ${j.viaName}, wahan ${RAIL.dur(j.wait)} ruk kar ${j.legs[1].no} se ${placeName(S.to)}. Total ${inr(jTotal(j))}. Book karun?`,
-   `${wl?'Direct trains are waitlisted. ':''}Best option: ${j.legs[0].no} to ${j.viaName} (arrive ${Tt(j.legs[0].t1)}), wait ${RAIL.dur(j.wait)}, then ${j.legs[1].no} to ${placeName(S.to)} by ${Tt(j.legs[1].t1)}. Both tickets booked and linked. Total ${inr(jTotal(j))}. Shall I book?`)}
+  return say(lang,`${wl?'सीधी ट्रेनों में वेटिंग है। ':''}सबसे अच्छा विकल्प: ${j.legs[0].no} से ${j.viaName} (${Tt(j.legs[0].t1)}), वहाँ ${RAIL.dur(j.wait)} रुककर ${j.legs[1].no} से ${Tt(j.legs[1].t1)} तक ${placeName(S.to)}। दोनों टिकट साथ बुक और लिंक होंगे। कुल ${inr(jTotal(j))}। आगे बढ़ूँ?`,
+   `${wl?'Direct trains mein waiting hai. ':''}Best option: ${j.legs[0].no} se ${j.viaName}, wahan ${RAIL.dur(j.wait)} ruk kar ${j.legs[1].no} se ${placeName(S.to)}. Total ${inr(jTotal(j))}. Aage badhun?`,
+   `${wl?'Direct trains are waitlisted. ':''}Best option: ${j.legs[0].no} to ${j.viaName} (arrive ${Tt(j.legs[0].t1)}), wait ${RAIL.dur(j.wait)}, then ${j.legs[1].no} to ${placeName(S.to)} by ${Tt(j.legs[1].t1)}. Both tickets booked and linked. Total ${inr(jTotal(j))}. Shall I continue?`)}
  return say(lang,'इस तारीख़ पर कोई पक्की सीट नहीं मिली। कोई और तारीख़ या क्लास देखूँ?','Is date par confirmed seat nahi mili. Koi aur date ya class dekhun?','No confirmed seat on this date. Shall I try another date or class?')}
 function afterBookTips(lang){const p=party();const tips=[];if(S.pick&&S.pick.kind==='c'&&S.pick.wait>=180)tips.push(say(lang,`${S.pick.viaName} पर ${RAIL.dur(S.pick.wait)} के इंतज़ार के लिए कमरा`,`${S.pick.viaName} par wait ke liye room`,`a room for the ${RAIL.dur(S.pick.wait)} wait at ${S.pick.viaName}`));
  if(p.seniors||p.children)tips.push(say(lang,'कुली और स्टेशन से ऑटो','porter aur auto','a porter and an auto from the station'));if(RAIL.isPilgrim(S.to.codes))tips.push(say(lang,`${placeName(S.to)} यात्रा पैकेज`,`${placeName(S.to)} trip bundle`,`the ${placeName(S.to)} trip bundle`));
  return tips.length?say(lang,'क्या मैं '+tips.join(', ')+' भी देख दूँ?','Kya main '+tips.join(', ')+' bhi dekh doon?','Shall I also set up '+tips.join(', ')+'?'):''}
+/* ----- Saathi booking steps: the same Passengers and Payment screens as manual booking ----- */
+function paxSummary(){return {passengers:travellers().map(x=>({traveller_id:x.id,name:x.name,age:x.age,berth:x.berth||'No preference',food:x.food||'Veg'})),only_confirmed:!!S.onlyConfirmed,same_coach:!!S.sameCoach,insurance:!!S.insure,trip_cover:!!S.cover,total_payable:S.pick?jTotal(S.pick):null}}
+const BWORDS=[[/(side ?lower|साइड ?लोअर|साइड ?नीचे)/i,'Side Lower'],[/(side ?upper|साइड ?अपर|साइड ?ऊपर)/i,'Side Upper'],[/(lower|लोअर|नीचे|neeche|niche)/i,'Lower'],[/(middle|मिडिल|मिडल|बीच|beech|bich)/i,'Middle'],[/(upper|अपर|ऊपर|upar|oopar)/i,'Upper'],[/(no pref|any\b|कोई भी|koi bhi|कोई पसंद नहीं|koi pasand nahi)/i,'No preference']];
+const SWORDS=[[/(window|खिड़की|खिडकी|khidki)/i,'Window'],[/(aisle|गलियारा|किनारे|kinare)/i,'Aisle'],[/(middle|बीच|beech|मिडिल)/i,'Middle'],[/(no pref|any\b|कोई भी|koi bhi)/i,'No preference']];
+const FWORDS=[[/(non[ -]?veg|नॉन[ -]?वेज|नान[ -]?वेज|मांसाहारी|nonveg)/i,'Non-veg'],[/(jain|जैन)/i,'Jain'],[/(no food|खाना नहीं|khana nahi|bina khana|बिना खाना)/i,'No food'],[/(\bveg|वेज|शाकाहारी|shakahari)/i,'Veg']];
+const ME_RE=/(मुझे|मेरे लिए|मेरी|mujhe|mere liye|meri|\bme\b|\bmy\b|myself|\bmain\b|मैं)/i;
+function whoIn(seg){if(ALL_RE.test(seg)||/(सबको|sabko|baaki|बाकी|everyone else|rest)/i.test(seg))return travellers().map(x=>x.id);const ids=[];
+ HI_REL.forEach(([re,id])=>{if(id!=='me'&&re.test(seg)&&S.sel.has(id))ids.push(id)});
+ travellers().forEach(p=>{const fn=p.name.split(' ')[0];if(new RegExp('\\b'+fn+'\\b','i').test(seg)&&!ids.includes(p.id))ids.push(p.id)});
+ if(!ids.length&&ME_RE.test(seg)&&S.sel.has('me'))ids.push('me');return ids}
+function applyWords(t,key,words){let n=0;t.split(/,|।|;|\n|\band\b|\baur\b|और/i).forEach(seg=>{const w=words.find(([re])=>re.test(seg));if(!w)return;const ids=whoIn(seg);
+ (ids.length?ids:(travellers().length===1?[travellers()[0].id]:[])).forEach(id=>{const tr=PROFILE.travellers.find(x=>x.id===id);if(tr){tr[key]=w[1];n++}})});return n}
+function seatDefaults(){const cc=S.cls==='CC';travellers().forEach(x=>{if(!x.berth||(cc?!SEAT_PREF.includes(x.berth):!BERTH_PREF.includes(x.berth)))x.berth=(!cc&&x.age>=60)?'Lower':'No preference';if(!x.food)x.food='Veg'})}
+function berthList(lang){const cc=S.cls==='CC';return travellers().map(x=>{const fn=x.name.split(' ')[0]+(lang==='en'||x.age<12||x.id==='me'?'':' जी');const b=x.berth&&x.berth!=='No preference'?x.berth:say(lang,'कोई भी','koi bhi','any');return fn+': '+b}).join(', ')}
+function foodList(lang){const f=[...new Set(travellers().map(x=>x.food||'Veg'))];return f.length===1?say(lang,'सबके लिए '+f[0],'sabke liye '+f[0],f[0]+' for everyone'):travellers().map(x=>x.name.split(' ')[0]+': '+(x.food||'Veg')).join(', ')}
+function startPax(lang){seatDefaults();LA.stage='pax';LA.paxDone=false;LA.payDone=false;go('pax');addAct('Passenger details');const cc=S.cls==='CC';
+ return say(lang,`ठीक है, अब यात्रियों का विवरण। ${cc?'सीट':'बर्थ'} पसंद: ${berthList(lang)}। ठीक है, या बदलना है? जैसे "प्रिया ${cc?'खिड़की':'अपर'}"।`,
+  `Theek hai, ab passenger details. ${cc?'Seat':'Berth'} preference: ${berthList(lang)}. Theek hai, ya badalna hai? Jaise "Priya ${cc?'window':'upper'}".`,
+  `Okay, passenger details next. ${cc?'Seat':'Berth'} preference: ${berthList(lang)}. Is that fine, or shall I change anything? For example "Priya ${cc?'window':'upper'}".`)}
+function askFood(lang){LA.stage='food';return say(lang,`खाना: ${foodList(lang)}। ठीक है? (वेज, नॉन-वेज, जैन या खाना नहीं)`,`Khana: ${foodList(lang)}. Theek hai? (veg, non-veg, Jain ya no food)`,`Food: ${foodList(lang)}. Is that fine? (Veg, Non-veg, Jain or no food)`)}
+function askIns(lang){LA.stage='ins';return say(lang,`यात्रा बीमा ₹0.45 प्रति यात्री जोड़ दूँ?`,`Travel insurance ₹0.45 per passenger jod doon?`,`Shall I add travel insurance at ₹0.45 per passenger?`)}
+function askCover(lang){LA.stage='cover';return say(lang,`कनेक्शन छूटने पर रात रुकने के लिए ₹49 प्रति व्यक्ति का ट्रिप कवर भी लें?`,`Connection chhootne par raat rukne ke liye ₹49 per person trip cover bhi lein?`,`Add the ₹49 per person trip cover, which pays a night's stay if you miss an overnight connection?`)}
+function startPay(lang){LA.paxDone=true;LA.stage='pay';go('pay');addAct('Review & pay');return say(lang,`कुल किराया ${inr(jTotal(S.pick))}। पेमेंट कैसे करेंगे: UPI (${PROFILE.name.split(' ')[0].toLowerCase()}@okaxis), कार्ड, नेट बैंकिंग, IRCTC iPay या वॉलेट?`,`Total ${inr(jTotal(S.pick))}. Payment kaise karenge: UPI, card, net banking, IRCTC iPay ya wallet?`,`Total payable ${inr(jTotal(S.pick))}. How would you like to pay: UPI, card, net banking, IRCTC iPay or wallet?`)}
+function parsePay(t){return /(upi|यूपीआई|gpay|google pay|phonepe|फोनपे|paytm|पेटीएम|bhim)/i.test(t)?'upi':/(card|कार्ड|debit|credit|डेबिट|क्रेडिट)/i.test(t)?'card':/(net ?banking|नेट ?बैंकिंग|netbanking)/i.test(t)?'nb':/(ipay|आईपे)/i.test(t)?'ipay':/(wallet|वॉलेट|वालेट)/i.test(t)?'wallet':null}
+function parseQuota(t){return /(premium tatkal|प्रीमियम तत्काल)/i.test(t)?'PT':/(tatkal|तत्काल|tatkaal)/i.test(t)?'TQ':/(ladies quota|लेडीज़ कोटा|महिला कोटा)/i.test(t)?'LD':/(senior (citizen )?quota|सीनियर कोटा|वरिष्ठ नागरिक कोटा)/i.test(t)?'SS':/(general quota|जनरल कोटा|सामान्य कोटा)/i.test(t)?'GN':null}
 function localReply(text,lang){lang=lang||detLang(text);const t=text;const st=LA.state;LA.hit=true;
  // system note after confirm tap
  if(t.startsWith('[User tapped Confirm')){LA.stage='booked';lang=LA.lang||lang;return say(lang,'बुकिंग हो गई! ','Booking ho gayi! ','Booked! ')+afterBookTips(LA.lang||lang)}
@@ -1732,8 +1770,24 @@ function localReply(text,lang){lang=lang||detLang(text);const t=text;const st=LA
  if(/(refund|रिफ़ंड|रिफंड|paisa wapas|पैसे वापस)/i.test(t))return INFO.refund.rows[0][1];
  if(/(सस्ता|सबसे कम|cheapest|sasta|kam kiraya)/i.test(t)&&S.res){const c=S.res.conns.filter(x=>x.ok).sort((a,b)=>a.fare-b.fare)[0];if(c){S.pick=mkJourney(c,'c');go('option');LA.stage='offer';return say(lang,`सबसे सस्ता सुरक्षित विकल्प ${c.viaName} होकर, ${inr(jTotal(S.pick))} कुल। बुक करूँ?`,`Sabse sasta safe option ${c.viaName} hokar, total ${inr(jTotal(S.pick))}. Book karun?`,`Cheapest safe option is via ${c.viaName}, ${inr(jTotal(S.pick))} in total. Shall I book?`)}}
  // offer stage
- if(LA.stage==='offer'){if(isYes(t)){const n=npax();const amt=jTotal(S.pick);showConfirm(amt);LA.stage='confirming';return say(lang,'नीचे "हाँ, बुक करें" दबाइए — आपकी मंज़ूरी के बिना बुकिंग नहीं होगी।','Neeche "हाँ, बुक करें" dabaiye — aapki manzoori ke bina booking nahi hogi.','Tap "हाँ, बुक करें" below to confirm — nothing is booked without your tap.')}
+ if(LA.stage==='offer'){if(isYes(t))return startPax(lang);
   if(isNo(t)){LA.stage='results';go('results');return say(lang,'ठीक है। स्क्रीन पर बाकी विकल्प हैं — कोई और देखूँ? "सबसे सस्ता" भी बोल सकते हैं।','Theek hai. Screen par baaki options hain — "sabse sasta" bhi bol sakte hain.','Okay. Other options are on screen; you can also say "cheapest".')}}
+ // booking steps, same order as the screens: passengers -> food -> insurance -> (trip cover) -> payment -> pay tap
+ if(['pax','food','ins','cover','pay','confirming'].includes(LA.stage)&&S.pick&&!S.booked&&!findPlaces(t).length&&!parseDate(t)){
+  const oc=/(sirf|only|केवल|सिर्फ़|सिर्फ)\s*.{0,12}(confirm|कन्फ़र्म|कंफर्म|कन्फर्म)/i.test(t);if(oc){S.onlyConfirmed=true;render()}
+  const sc=/(same coach|एक ही कोच|ek hi coach)/i.test(t);if(sc){S.sameCoach=true;render()}
+  if(LA.stage==='pax'){const n=applyWords(t,'berth',S.cls==='CC'?SWORDS:BWORDS);if(n){render();return say(lang,`बदल दिया: ${berthList(lang)}। और कुछ बदलना है? नहीं तो "हाँ" बोलिए।`,`Badal diya: ${berthList(lang)}. Aur kuch? Nahi toh "haan" boliye.`,`Updated: ${berthList(lang)}. Anything else? If not, say "yes".`)}
+   if(isYes(t)||isNo(t)||oc||sc)return askFood(lang)}
+  else if(LA.stage==='food'){const n=applyWords(t,'food',FWORDS);if(n){render();return say(lang,`खाना: ${foodList(lang)}। ठीक है?`,`Khana: ${foodList(lang)}. Theek hai?`,`Food: ${foodList(lang)}. Is that fine?`)}
+   if(isYes(t)||oc||sc)return askIns(lang);if(isNo(t))return say(lang,'कौन-सा खाना चाहिए: वेज, नॉन-वेज, जैन या खाना नहीं? नाम के साथ बताइए, जैसे "प्रिया नॉन-वेज"।','Kaunsa khana: veg, non-veg, Jain ya no food? Jaise "Priya non-veg".','Which food: Veg, Non-veg, Jain or no food? For example "Priya non-veg".')}
+  else if(LA.stage==='ins'){if(isYes(t)||isNo(t)){S.insure=isYes(t);render();return S.pick.kind==='c'?askCover(lang):startPay(lang)}}
+  else if(LA.stage==='cover'){if(isYes(t)||isNo(t)){S.cover=isYes(t);render();return startPay(lang)}}
+  else if(LA.stage==='pay'){const m=parsePay(t)||(isYes(t)?(S.payMethod||'upi'):null);if(m){S.payMethod=m;LA.payDone=true;render();showConfirm(jTotal(S.pick));LA.stage='confirming';
+    return say(lang,`${m==='card'?'कार्ड नंबर स्क्रीन पर भरें (डेमो)। ':''}नीचे "${inr(jTotal(S.pick))} पे करें" दबाइए। आपकी मंज़ूरी के बिना पैसा नहीं कटेगा।`,`${m==='card'?'Card number screen par bharein (demo). ':''}Neeche "${inr(jTotal(S.pick))} पे करें" dabaiye. Aapki manzoori ke bina paisa nahi katega.`,`${m==='card'?'Enter the card number on screen (demo). ':''}Tap "${inr(jTotal(S.pick))} पे करें" below. Nothing is charged without your tap.`)}}
+  else if(LA.stage==='confirming'){if(isYes(t))return say(lang,'नीचे पे करें बटन दबाइए।','Neeche pay button dabaiye.','Tap the pay button below.');if(isNo(t)){LA.stage='pay';return say(lang,'ठीक है, बुकिंग नहीं हुई। स्क्रीन पर कुछ भी बदल सकते हैं, या पेमेंट का तरीका बताइए।','Theek hai, booking nahi hui. Payment ka tareeka badalna ho toh bataiye.','Okay, nothing was booked. You can change anything on screen, or tell me another payment method.')}}
+  if(oc||sc)return say(lang,'ठीक है, जोड़ दिया।','Theek hai, jod diya.','Done.');
+  if(LA.tryAI)return null;
+  return {pax:()=>startPax(lang),food:()=>askFood(lang),ins:()=>askIns(lang),cover:()=>askCover(lang),pay:()=>startPay(lang),confirming:()=>say(lang,'नीचे पे करें बटन दबाइए।','Neeche pay button dabaiye.','Tap the pay button below.')}[LA.stage]()}
  if(LA.stage==='booked'&&isYes(t)){S.porter=hasHelp();S.auto=true;if(S.pick.kind==='c'&&S.pick.wait>=180)S.room=true;go('door');addAct('Station help set');return say(lang,'हो गया! कुली और ऑटो जोड़ दिए हैं। स्क्रीन पर देखकर बदल भी सकते हैं।','Ho gaya! Porter aur auto jod diye hain.','Done. Porter and auto are added; you can change them on screen.')}
  // slot filling
  LA.hit=false;
@@ -1746,6 +1800,7 @@ function localReply(text,lang){lang=lang||detLang(text);const t=text;const st=LA
   if(T2){const r=RAIL.find(T2.key,3)[0];if(r){st.to=r;changed=true;if(r.note)res.push(r.note)}}
   LA.notes=res}
  const dt=parseDate(t);if(dt){st.date=dt;changed=true}
+ const qt=parseQuota(t);if(qt){st.quota=qt;changed=true}
  const cl=parseClass(t);if(cl){st.cls=cl;changed=true}else if(LA.expect==='cls'&&isYes(t)&&LA.suggestCls){st.cls=LA.suggestCls;changed=true}
  const tv=parseTravellers(t);if(tv){st.trav=tv;changed=true}
  else if(LA.expect==='from'&&isYes(t)&&!st.from){st.from=RAIL.find(PROFILE.home,1)[0];changed=true}
@@ -1759,7 +1814,7 @@ function localReply(text,lang){lang=lang||detLang(text);const t=text;const st=LA
  const note=(LA.notes&&LA.notes.length)?LA.notes.join(' ')+' ':'';LA.notes=[];
  if(miss.length)return note+askFor(miss,lang);
  LA.expect=null;return note+summaryLine(lang)+' '+say(lang,'ट्रेनें खोज रहा हूँ… ','Trains dhoondh raha hoon… ','Searching… ')+doLocalSearch(lang)}
-function syncLocal(){const st=LA.state;if(S.from)st.from=S.from;if(S.to)st.to=S.to;if(S.date)st.date=S.date;if(S.cls)st.cls=S.cls;st.trav=[...S.sel];LA.stage=S.booked?'booked':S.pick?'offer':'collect'}
+function syncLocal(){const st=LA.state;if(S.from)st.from=S.from;if(S.to)st.to=S.to;if(S.date)st.date=S.date;if(S.cls)st.cls=S.cls;st.trav=[...S.sel];const mid=['pax','food','ins','cover','pay','confirming'].includes(LA.stage);LA.stage=S.booked?'booked':S.pick?(mid?LA.stage:(S.view==='pay'?'pay':S.view==='pax'?'pax':'offer')):'collect'}
 function localTurn(text,hidden){const m=addMsg('a','…');const tn=m.firstChild;setTimeout(()=>{let r;try{r=localReply(text)}catch(e){r='माफ़ कीजिए, समझ नहीं पाया। दोबारा बताइए? (Sorry, please say that again.)'}tn.textContent=r;if(autoTTS&&r)speak(r,m.querySelector('.spk'));document.getElementById('msgs').scrollTop=1e9},60)}
 
 /* ---------- Voice ---------- */
